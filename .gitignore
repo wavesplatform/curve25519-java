@@ -1,8 +1,6 @@
 target/
 .idea/
 *.iml
-obj/
-build/
-.gradle/
-local.properties
-gradle.properties
+.vscode/
+# Native libraries are built by CI (or native/build.sh) and bundled at package time.
+src/main/resources/*/

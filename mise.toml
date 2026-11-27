@@ -1,0 +1,9 @@
+# Development toolchain (https://mise.jdx.dev). `mise install` sets everything up; CI uses the
+# same versions for the Linux native builds.
+[tools]
+java = "temurin-17"
+maven = "3.10.2"
+rust = { version = "1.100.0", profile = "minimal" }
+# Linux libraries are linked with zig against glibc 2.17 so they load on old distributions.
+zig = "0.17.1"
+"aqua:rust-cross/cargo-zigbuild" = "0.24.1"

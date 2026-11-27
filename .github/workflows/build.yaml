@@ -1,0 +1,146 @@
+name: Build, test and publish
+
+on:
+  push:
+    branches: [master]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: 1.100.0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  native:
+    name: native ${{ matrix.prefix }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux: cross-linked with zig against glibc 2.17.
+          - { prefix: linux-x86-64,   os: ubuntu-24.04,   target: x86_64-unknown-linux-gnu,  glibc: '2.17', lib: libcurve25519.so }
+          - { prefix: linux-aarch64,  os: ubuntu-24.04,   target: aarch64-unknown-linux-gnu, glibc: '2.17', lib: libcurve25519.so }
+          - { prefix: linux-x86,      os: ubuntu-24.04,   target: i686-unknown-linux-gnu,    glibc: '2.17', lib: libcurve25519.so }
+          - { prefix: darwin-aarch64, os: macos-15,       target: aarch64-apple-darwin,      macos: '11.0',  lib: libcurve25519.dylib }
+          - { prefix: darwin-x86-64,  os: macos-15,       target: x86_64-apple-darwin,       macos: '10.13', lib: libcurve25519.dylib }
+          - { prefix: win32-x86-64,   os: windows-2025,   target: x86_64-pc-windows-msvc,    lib: curve25519.dll }
+          - { prefix: win32-x86,      os: windows-2025,   target: i686-pc-windows-msvc,      lib: curve25519.dll }
+          - { prefix: win32-aarch64,  os: windows-11-arm, target: aarch64-pc-windows-msvc,   lib: curve25519.dll }
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install toolchain (Linux, via mise)
+        if: matrix.glibc
+        uses: jdx/mise-action@v3
+        with:
+          install_args: rust zig aqua:rust-cross/cargo-zigbuild
+
+      - name: Install toolchain (macOS / Windows)
+        if: ${{ !matrix.glibc }}
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Build
+        working-directory: native
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos }}
+        run: |
+          rustup target add ${{ matrix.target }}
+          if [ -n "${{ matrix.glibc }}" ]; then
+            cargo zigbuild --locked --release --target ${{ matrix.target }}.${{ matrix.glibc }}
+          else
+            cargo build --locked --release --target ${{ matrix.target }}
+          fi
+          mkdir -p ../dist/${{ matrix.prefix }}
+          cp target/${{ matrix.target }}/release/${{ matrix.lib }} ../dist/${{ matrix.prefix }}/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.prefix }}
+          path: dist
+          if-no-files-found: error
+
+  rust-checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy
+          rustup default "$RUST_VERSION"
+      - name: Test and lint
+        working-directory: native
+        run: |
+          cargo test --locked --release
+          cargo clippy --locked --release -- -D warnings
+
+  test:
+    name: test ${{ matrix.os }} java ${{ matrix.java }} ${{ matrix.arch }}
+    needs: native
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-2025, windows-11-arm]
+        java: ['17', '25']
+        arch: ['']
+        include:
+          - { os: windows-2025, java: '17', arch: x86 }
+        exclude:
+          # Temurin has no Windows on Arm build of JDK 17.
+          - { os: windows-11-arm, java: '17', arch: '' }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: src/main/resources
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          architecture: ${{ matrix.arch || null }}
+          cache: maven
+      # The output includes the hardware backend picked at runtime, e.g. "curve=avx2 sha512=avx2".
+      - run: ./mvnw -B -ntp -Prequire-natives verify
+        shell: bash
+
+  publish:
+    needs: [test, rust-checks]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: src/main/resources
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+      - name: Set release version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: ./mvnw -B -ntp org.codehaus.mojo:versions-maven-plugin:2.25.3:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
+      # Tags publish a release; master publishes a -SNAPSHOT (requires snapshots to be enabled
+      # for the namespace on central.sonatype.com).
+      - name: Deploy to Maven Central
+        run: ./mvnw -B -ntp -Prelease,require-natives -DskipTests deploy
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+          MAVEN_GPG_KEY: ${{ secrets.OSSRH_GPG_KEY_ASCII }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_GPG_PASSPHRASE }}

@@ -1,0 +1,12 @@
+# Compile curve25519-dalek's AVX-512 IFMA backend in addition to AVX2 on x86-64. Without
+# this, dalek only builds the IFMA code when the *compile-time* target already enables
+# avx512ifma, which a portable library cannot do. Both vector backends are compiled with
+# `#[target_feature]` and picked at runtime via CPUID, falling back to the serial backend.
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["--cfg", 'curve25519_dalek_backend="avx512"']
+
+# Statically link the C runtime so the DLL does not depend on vcruntime140.dll.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# On x86-64 Windows both tables match and cargo joins their flags.

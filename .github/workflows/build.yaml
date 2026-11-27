@@ -127,7 +127,9 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-          server-id: central
+          server-id: sonatype-central
+          mvn-server-repository-origins: |
+            sonatype-central:https://central.sonatype.com
           server-username-env-var: CENTRAL_USERNAME
           server-password-env-var: CENTRAL_PASSWORD
       - name: Set release version from tag

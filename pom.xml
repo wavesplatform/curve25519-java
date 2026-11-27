@@ -233,7 +233,9 @@
                         <version>0.12.0</version>
                         <extensions>true</extensions>
                         <configuration>
-                            <publishingServerId>central</publishingServerId>
+                            <!-- Own id: "central" is also Maven Central's download repository, which would bind the
+                                 token to repo.maven.apache.org (see apache/maven#14101). -->
+                            <publishingServerId>sonatype-central</publishingServerId>
                             <autoPublish>true</autoPublish>
                             <waitUntil>published</waitUntil>
                         </configuration>

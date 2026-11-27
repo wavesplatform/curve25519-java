@@ -1,0 +1,31 @@
+[package]
+name = "curve25519-native"
+version = "0.7.0"
+edition = "2024"
+rust-version = "1.89"
+license = "GPL-3.0-only"
+description = "JNI backend for curve25519-java (X25519, XEdDSA, VXEdDSA) built on curve25519-dalek"
+publish = false
+
+[lib]
+name = "curve25519"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cpufeatures = "0.3.1"
+curve25519-dalek = { version = "5.0.0", default-features = false, features = ["alloc", "precomputed-tables", "zeroize"] }
+fiat-crypto = { version = "0.3.0", default-features = false }
+jni-sys = "0.4.1"
+sha2 = { version = "0.11.2", default-features = false }
+subtle = { version = "2.6.1", default-features = false }
+zeroize = { version = "1.9.2", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(curve25519_dalek_backend, values("avx512", "simd", "serial", "fiat"))'] }

@@ -93,9 +93,6 @@ jobs:
         arch: ['']
         include:
           - { os: windows-2025, java: '17', arch: x86 }
-        exclude:
-          # Temurin has no Windows on Arm build of JDK 17.
-          - { os: windows-11-arm, java: '17', arch: '' }
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
@@ -105,7 +102,8 @@ jobs:
           path: src/main/resources
       - uses: actions/setup-java@v5
         with:
-          distribution: temurin
+          # Temurin publishes no Windows on Arm JDKs; Microsoft's OpenJDK build does (17 and 25).
+          distribution: ${{ matrix.os == 'windows-11-arm' && 'microsoft' || 'temurin' }}
           java-version: ${{ matrix.java }}
           architecture: ${{ matrix.arch || null }}
           cache: maven
